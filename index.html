@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>$MOJO — Banana Dash</title>
+  <meta name="description" content="Collect bananas, dodge rocks. Simple MOJO mini-game." />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="ui">
+    <div class="title">$MOJO — Banana Dash 🍌</div>
+    <div class="row">
+      <button id="btnStart">Start</button>
+      <div class="spacer"></div>
+      <div id="score">Score: 0</div>
+    </div>
+  </div>
+  <canvas id="game" width="360" height="640"></canvas>
+  <div id="gameover" class="hidden">
+    <h1>Game Over</h1>
+    <p>Your Score: <span id="finalScore">0</span></p>
+    <button id="btnRestart">Play Again</button>
+    <p id="saveStatus"></p>
+  </div>
+  <script>
+    function getQuery(key){
+      const p=new URLSearchParams(location.search); return p.get(key);
+    }
+    const PLAYER_ID = getQuery('uid') || null;
+    const API_BASE  = getQuery('api') || null; // e.g., https://your-app.onrender.com
+
+    async function saveScore(score){
+      if(!API_BASE || !PLAYER_ID){ 
+        document.getElementById('saveStatus').textContent = 'Score saved locally (no API).';
+        return;
+      }
+      try{
+        const res = await fetch(API_BASE + '/score', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ user_id: PLAYER_ID, score: score })
+        });
+        const data = await res.json();
+        document.getElementById('saveStatus').textContent = data.ok ? 'Score saved ✅' : ('Save failed: ' + data.error);
+      }catch(e){
+        document.getElementById('saveStatus').textContent = 'Save error. Try again.';
+      }
+    }
+  </script>
+  <script src="game.js"></script>
+</body>
+</html>
