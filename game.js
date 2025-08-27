@@ -10,8 +10,14 @@
     player={x:W/2,y:H-80,r:18,vy:0,onGround:true};
     bananas=[]; rocks=[]; score=0; speed=2; lastSpawn=0; lastTime=performance.now();
   }
-  function start(){ document.getElementById('gameover').classList.add('hidden'); reset(); running=true; loop(); }
-  async function end(){ running=false; document.getElementById('finalScore').textContent=score; document.getElementById('gameover').classList.remove('hidden'); await saveScore(score); }
+  function start(){
+  const go = document.getElementById('gameover');
+  if (go) go.classList.add('hidden');       // make sure overlay hides
+  document.getElementById('score').textContent = 'Score: 0';
+  reset();
+  running = true;
+  loop();
+}
 
   function spawnStuff(dt){
     lastSpawn+=dt;
@@ -94,4 +100,5 @@
 
   function fit(){ const maxW=Math.min(window.innerWidth-16,420); const scale=maxW/W; canvas.style.width=(W*scale)+'px'; canvas.style.height=(H*scale)+'px'; }
   window.addEventListener('resize',fit); fit(); reset(); draw();
+
 })();
