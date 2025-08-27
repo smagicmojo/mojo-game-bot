@@ -1,177 +1,74 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>$MOJO — Banana Dash</title>
-  <meta name="description" content="Collect bananas, dodge rocks. Simple MOJO mini-game." />
-  <!-- Inline CSS so .hidden works even if external CSS fails -->
+  <meta charset="utf-8">
+  <title>$MOJO Banana Dash 🍌</title>
   <style>
-    *{box-sizing:border-box}
-    html,body{margin:0;height:100%;background:#0b1220;color:#fff;font-family:system-ui,sans-serif}
-    #ui{position:fixed;top:10px;left:10px;right:10px;display:flex;flex-direction:column;gap:8px;z-index:2}
-    .title{font-weight:900;letter-spacing:.5px;text-align:center}
-    .row{display:flex;align-items:center;gap:8px}.spacer{flex:1}
-    #btnStart,#btnRestart{padding:10px 16px;font-weight:800;border:0;border-radius:10px;background:#17c964;color:#04110a;cursor:pointer}
-    #score{font-weight:800}
-    #game{display:block;margin:0 auto;background:linear-gradient(180deg,#14203b 0%,#0b1220 60%);border:2px solid #1d2b4d;border-radius:16px}
-    #gameover{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.65);text-align:center;gap:12px}
-    .hidden{display:none}
+    body { margin:0; background:#0b1220; color:#fff; font-family:sans-serif; text-align:center; }
+    #ui { margin:10px; }
+    #btnStart, #btnRestart {
+      padding:10px 16px; border:none; border-radius:6px;
+      background:#17c964; color:#000; font-weight:bold; cursor:pointer;
+    }
+    #score { font-weight:bold; margin-left:10px; }
+    #game { background:#14203b; border:2px solid #1d2b4d; border-radius:12px; }
+    #gameover {
+      position:fixed; inset:0;
+      background:rgba(0,0,0,0.8); color:#fff;
+      display:none; flex-direction:column; justify-content:center; align-items:center;
+      gap:10px; z-index:100;
+    }
   </style>
 </head>
 <body>
   <div id="ui">
-    <div class="title">$MOJO — Banana Dash 🍌</div>
-    <div class="row">
-      <button id="btnStart">Start</button>
-      <div class="spacer"></div>
-      <div id="score">Score: 0</div>
-    </div>
+    <button id="btnStart">Start</button>
+    <span id="score">Score: 0</span>
   </div>
-  <canvas id="game" width="360" height="640"></canvas>
-  <div id="gameover" class="hidden">
+
+  <canvas id="game" width="360" height="480"></canvas>
+
+  <div id="gameover">
     <h1>Game Over</h1>
     <p>Your Score: <span id="finalScore">0</span></p>
     <button id="btnRestart">Play Again</button>
-    <p id="saveStatus"></p>
   </div>
 
   <script>
-    // Read params from the URL when opened via the bot
-    function getQuery(key){ const p=new URLSearchParams(location.search); return p.get(key); }
-    const PLAYER_ID = getQuery('uid') || null;
-    const API_BASE  = getQuery('api') || null; // e.g., https://mojo-bot.onrender.com
+    const canvas=document.getElementById("game"), ctx=canvas.getContext("2d");
+    const W=canvas.width,H=canvas.height;
+    let player,score,running;
 
-    async function saveScore(score){
-      if(!API_BASE || !PLAYER_ID){
-        document.getElementById('saveStatus').textContent = 'Score saved locally (no API).';
-        return;
-      }
-      try{
-        const res = await fetch(API_BASE + '/score', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ user_id: PLAYER_ID, score })
-        });
-        const data = await res.json();
-        document.getElementById('saveStatus').textContent = data.ok ? 'Score saved ✅' : ('Save failed: ' + data.error);
-      }catch(e){
-        document.getElementById('saveStatus').textContent = 'Save error. Try again.';
-      }
+    function reset(){
+      player={x:W/2,y:H-40,r:20}; score=0;
+      document.getElementById("score").textContent="Score: 0";
     }
 
-    (function(){
-      const canvas = document.getElementById('game');
-      const ctx = canvas.getContext('2d');
-      const W = canvas.width, H = canvas.height;
+    function start(){
+      document.getElementById("gameover").style.display="none"; // Hides overlay
+      reset(); running=true; loop();
+    }
 
-      let player, bananas, rocks, score, running, speed, lastSpawn, lastTime;
-      const GRAVITY=0.4, JUMP_VELOCITY=-8.5;
+    function end(){
+      running=false;
+      document.getElementById("finalScore").textContent=score;
+      document.getElementById("gameover").style.display="flex"; // Shows overlay
+    }
 
-      function reset(){
-        player={x:W/2,y:H-80,r:18,vy:0,onGround:true};
-        bananas=[]; rocks=[]; score=0; speed=2; lastSpawn=0; lastTime=performance.now();
-        document.getElementById('score').textContent='Score: 0';
-      }
-      function start(){
-        const go = document.getElementById('gameover');
-        if (go) go.classList.add('hidden'); // ensure overlay hides
-        reset();
-        running=true;
-        loop();
-      }
-      async function end(){
-        running=false;
-        document.getElementById('finalScore').textContent=score;
-        document.getElementById('gameover').classList.remove('hidden');
-        await saveScore(score);
-      }
+    function loop(){
+      if(!running) return;
+      ctx.clearRect(0,0,W,H);
+      ctx.fillStyle="#f5d28b"; ctx.beginPath(); ctx.arc(player.x,player.y,player.r,0,Math.PI*2); ctx.fill();
+      score++;
+      document.getElementById("score").textContent="Score: "+score;
+      if(score>200) end(); // auto game over test
+      requestAnimationFrame(loop);
+    }
 
-      function spawnStuff(dt){
-        lastSpawn+=dt;
-        if(lastSpawn>900){
-          lastSpawn=0;
-          bananas.push({x:Math.random()*(W-40)+20,y:-20,r:10});
-          if(Math.random()<0.7) rocks.push({x:Math.random()*(W-60)+30,y:-30,r:16});
-          speed+=0.02;
-        }
-      }
-      function update(dt){
-        player.vy+=GRAVITY; player.y+=player.vy;
-        if(player.y>H-80){ player.y=H-80; player.vy=0; player.onGround=true; } else player.onGround=false;
-        for(const b of bananas) b.y+=speed*1.3;
-        for(const r of rocks) r.y+=speed*1.4;
-        for(let i=bananas.length-1;i>=0;i--){
-          const b=bananas[i];
-          if(dist(player,b)<player.r+b.r){
-            bananas.splice(i,1); score+=10;
-            document.getElementById('score').textContent='Score: '+score;
-          } else if(b.y>H+30) bananas.splice(i,1);
-        }
-        for(let i=rocks.length-1;i>=0;i--){
-          const r=rocks[i];
-          if(dist(player,r)<player.r+r.r){ end(); return; }
-          else if(r.y>H+40) rocks.splice(i,1);
-        }
-      }
-      function drawBackground(){
-        ctx.save();
-        for(let i=0;i<40;i++){
-          const x=(i*97%W), y=(i*53%H);
-          ctx.globalAlpha=.25; ctx.fillStyle='#8fb5ff'; ctx.fillRect(x,y,2,2);
-        }
-        ctx.restore();
-        ctx.fillStyle='#0a1a12'; ctx.fillRect(0,H-60,W,60);
-        ctx.fillStyle='#113b2c';
-        for(let i=0;i<8;i++){
-          const x=(i*50+(Date.now()/20)%50)%(W+60)-30;
-          ctx.beginPath(); ctx.arc(x,H-60,30,0,Math.PI*2); ctx.fill();
-        }
-      }
-      function draw(){
-        ctx.clearRect(0,0,W,H);
-        drawBackground();
-        // player
-        ctx.save(); ctx.translate(player.x,player.y);
-        ctx.beginPath(); ctx.fillStyle='#f5d28b'; ctx.arc(0,0,player.r,0,Math.PI*2); ctx.fill();
-        ctx.fillStyle='#3b2a19';
-        ctx.beginPath(); ctx.arc(-6,-4,3,0,Math.PI*2); ctx.fill();
-        ctx.beginPath(); ctx.arc(6,-4,3,0,Math.PI*2); ctx.fill();
-        ctx.beginPath(); ctx.arc(0,4,6,0,Math.PI); ctx.fill();
-        ctx.restore();
-        // bananas
-        for(const b of bananas) drawBanana(b.x,b.y,b.r);
-        // rocks
-        ctx.fillStyle='#6b717a';
-        for(const r of rocks){ ctx.beginPath(); ctx.arc(r.x,r.y,r.r,0,Math.PI*2); ctx.fill(); }
-      }
-      function drawBanana(x,y,r){
-        const ang=-0.6;
-        ctx.save(); ctx.translate(x,y); ctx.rotate(ang);
-        ctx.fillStyle='#ffdf40';
-        ctx.beginPath(); ctx.ellipse(0,0,r*1.6,r*0.8,0,0,Math.PI*2); ctx.fill();
-        ctx.strokeStyle='#d1a80e'; ctx.lineWidth=2;
-        ctx.beginPath(); ctx.arc(0,0,r*1.2,-0.9,0.9); ctx.stroke();
-        ctx.restore();
-      }
-      function loop(){
-        if(!running) return;
-        const now=performance.now();
-        const dt=now-lastTime; lastTime=now;
-        spawnStuff(dt); update(dt); draw();
-        requestAnimationFrame(loop);
-      }
-      function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
+    document.getElementById("btnStart").onclick=start;
+    document.getElementById("btnRestart").onclick=start;
 
-      canvas.addEventListener('pointerdown',()=>{ if(player.onGround) player.vy=JUMP_VELOCITY; else player.vy=Math.min(player.vy,-2); });
-      document.getElementById('btnStart').addEventListener('click',start);
-      document.getElementById('btnRestart').addEventListener('click',start);
-
-      function fit(){ const maxW=Math.min(window.innerWidth-16,420); const scale=maxW/W; canvas.style.width=(W*scale)+'px'; canvas.style.height=(H*scale)+'px'; }
-      window.addEventListener('resize',fit); fit(); reset(); draw();
-    })();
+    reset(); ctx.fillText("Press Start",140,240);
   </script>
 </body>
 </html>
-
-
