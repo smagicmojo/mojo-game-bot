@@ -1,110 +1,268 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>$MOJO — Banana Dash 🍌</title>
-  <style>
-    html,body{margin:0;background:#0b1220;color:#fff;font-family:sans-serif}
-    #ui{position:fixed;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;z-index:200}
-    #btnStart,#btnRestart{padding:10px 16px;border:0;border-radius:8px;background:#17c964;color:#000;font-weight:700;cursor:pointer}
-    #score{font-weight:800}
-    #game{display:block;margin:0 auto;background:#14203b;border:2px solid #1d2b4d;border-radius:16px}
-    #gameover{position:fixed;inset:0;background:rgba(0,0,0,.8);display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:150}
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>$MOJO — Banana Dash Deluxe 🍌</title>
+<style>
+  :root { --bg:#0a0f1a; --ui:#0e1b2f; --accent:#17c964; --accent2:#ffd84d; }
+  *{box-sizing:border-box}
+  html,body{height:100%; margin:0; background:var(--bg); color:#e9efff; font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif}
+  #wrap{display:flex; align-items:center; justify-content:center; height:100%; padding:10px}
+  #frame{position:relative; width:min(96vw,460px); aspect-ratio:9/16; border-radius:18px; background:linear-gradient(180deg,#0e1630 0%,#07121f 60%); box-shadow:0 20px 60px rgba(0,0,0,.6), inset 0 0 0 2px #1a2a4a}
+  canvas{position:absolute; inset:0; width:100%; height:100%; display:block; border-radius:18px}
+  #hud{position:absolute; inset:0; pointer-events:none}
+  .bar{position:absolute; top:8px; left:8px; right:8px; display:flex; gap:8px; align-items:center; justify-content:space-between}
+  .btn{pointer-events:auto; appearance:none; border:0; border-radius:12px; background:var(--accent); color:#02140b; padding:10px 16px; font-weight:800; cursor:pointer; box-shadow:0 6px 18px rgba(23,201,100,.35)}
+  .pill{background:rgba(255,255,255,.08); padding:8px 12px; border-radius:999px; font-weight:800; letter-spacing:.3px}
+  #bigStart, #overlay{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; text-align:center; backdrop-filter: blur(2px)}
+  #bigStart{background:linear-gradient(180deg,rgba(0,0,0,.0),rgba(0,0,0,.15))}
+  #overlay{display:none; background:linear-gradient(180deg,rgba(0,0,0,.25),rgba(0,0,0,.65))}
+  h1{margin:0; font-size:28px; letter-spacing:.3px}
+  .title{font-weight:900; letter-spacing:.4px}
+  .tiny{opacity:.8; font-size:12px}
+  .glow{filter:drop-shadow(0 0 8px rgba(255,216,77,.55))}
+  .mono{font-variant-numeric:tabular-nums}
+</style>
 </head>
 <body>
-  <div id="ui">
-    <button id="btnStart">Start</button>
-    <div id="score">Score: 0</div>
+<div id="wrap">
+  <div id="frame">
+    <canvas id="game" width="360" height="640"></canvas>
+
+    <!-- HUD -->
+    <div id="hud">
+      <div class="bar">
+        <button id="btnStart" class="btn">Start</button>
+        <div class="pill mono" id="score">Score: 0</div>
+      </div>
+    </div>
+
+    <!-- Big start panel -->
+    <div id="bigStart">
+      <div class="title glow" style="font-size:20px">$MOJO — Banana Dash Deluxe 🍌</div>
+      <div class="tiny">Tap to jump • Collect bananas • Dodge rocks</div>
+      <button id="btnBigStart" class="btn" style="padding:14px 22px; font-size:16px">Play Now</button>
+      <div class="tiny">Best on mobile • Sound on 🔊</div>
+    </div>
+
+    <!-- Game Over / Result -->
+    <div id="overlay">
+      <h1>Game Over</h1>
+      <div class="mono" id="final">Score: 0</div>
+      <div class="mono" id="best">Best: 0</div>
+      <button id="btnRestart" class="btn">Play Again</button>
+      <div class="tiny" id="saveStatus"></div>
+    </div>
   </div>
+</div>
 
-  <canvas id="game" width="360" height="480"></canvas>
+<script>
+/* ========= Telegram params (for saving) ========= */
+const Q = new URLSearchParams(location.search);
+const PLAYER_ID = Q.get('uid');
+const API_BASE  = Q.get('api');
 
-  <div id="gameover" style="display:none">
-    <h1>Game Over</h1>
-    <p>Your Score: <span id="finalScore">0</span></p>
-    <button id="btnRestart">Play Again</button>
-    <p id="saveStatus"></p>
-  </div>
+async function saveScore(score){
+  const s = document.getElementById('saveStatus');
+  if(!PLAYER_ID || !API_BASE){ s.textContent = 'Local session (no API).'; return; }
+  try{
+    const res = await fetch(API_BASE + '/score', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({user_id: PLAYER_ID, score})
+    });
+    const data = await res.json();
+    s.textContent = data.ok ? 'Score saved ✅' : 'Save failed ❌';
+  }catch(e){ s.textContent = 'Save error ❌'; }
+}
 
-  <script>
-    const cv = document.getElementById("game"), ctx=cv.getContext("2d");
-    const W=cv.width,H=cv.height,GRAVITY=0.4,JUMP=-8.5;
+/* ========= Canvas & scaling ========= */
+const cvs = document.getElementById('game');
+const ctx = cvs.getContext('2d');
+let DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+function resize(){
+  DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  cvs.width  = 360 * DPR;
+  cvs.height = 640 * DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+resize();
+window.addEventListener('resize', resize);
 
-    let player,bananas,rocks,score,running,lastTime;
+/* ========= Assets (procedural) ========= */
+// Parallax jungle layers (silhouette mountains/trees)
+function drawJungle(yOffset){
+  // Sky gradient
+  const g = ctx.createLinearGradient(0,0,0,640);
+  g.addColorStop(0,'#0f1a3c'); g.addColorStop(.6,'#0a1324'); g.addColorStop(1,'#07121f');
+  ctx.fillStyle=g; ctx.fillRect(0,0,360,640);
 
-    function reset(){
-      player={x:W/2,y:H-60,r:18,vy:0,onGround:true};
-      bananas=[]; rocks=[]; score=0; lastTime=performance.now();
-      document.getElementById("score").textContent="Score: 0";
-      ctx.clearRect(0,0,W,H);
-    }
+  // Stars
+  ctx.globalAlpha=.18;
+  ctx.fillStyle="#9db7ff";
+  for(let i=0;i<60;i++){
+    const x=(i*53 + (Date.now()/35))%360, y=(i*89)%640;
+    ctx.fillRect(x, y, 2, 2);
+  }
+  ctx.globalAlpha=1;
 
-    function start(){
-      document.getElementById("gameover").style.display="none";
-      reset(); running=true; loop();
-    }
+  // Far mountains
+  ctx.fillStyle="#0b1f3a"; ctx.beginPath();
+  ctx.moveTo(0,420+yOffset*0.2); ctx.lineTo(100,360+yOffset*0.2); ctx.lineTo(200,420+yOffset*0.2);
+  ctx.lineTo(280,380+yOffset*0.2); ctx.lineTo(360,420+yOffset*0.2); ctx.lineTo(360,640); ctx.lineTo(0,640); ctx.closePath(); ctx.fill();
 
-    async function end(){
-      running=false;
-      document.getElementById("finalScore").textContent=score;
-      document.getElementById("gameover").style.display="flex";
-    }
+  // Mid trees
+  ctx.fillStyle="#0c2c2a";
+  for(let i=0;i<8;i++){
+    const x = ((i*50 + (Date.now()/20))%420)-30;
+    ctx.beginPath(); ctx.arc(x,500+yOffset*0.4,30,0,Math.PI*2); ctx.fill();
+  }
 
-    function spawn(){
-      if(Math.random()<0.03) bananas.push({x:Math.random()*W,y:-20,r:10});
-      if(Math.random()<0.02) rocks.push({x:Math.random()*W,y:-20,r:16});
-    }
+  // Ground
+  ctx.fillStyle="#092018"; ctx.fillRect(0,600,360,40);
+}
 
-    function update(){
-      player.vy+=GRAVITY; player.y+=player.vy;
-      if(player.y>H-60){player.y=H-60; player.vy=0; player.onGround=true;}
-      else player.onGround=false;
+// Banana sprite (curved with stroke)
+function drawBanana(x,y,r,rot){
+  ctx.save(); ctx.translate(x,y); ctx.rotate(rot||-0.4);
+  ctx.fillStyle="#ffd84d";
+  ctx.beginPath(); ctx.ellipse(0,0,r*1.6,r*0.8,0,0,Math.PI*2); ctx.fill();
+  ctx.lineWidth=2; ctx.strokeStyle="#ccac2e";
+  ctx.beginPath(); ctx.arc(0,0,r*1.2,-0.9,0.9); ctx.stroke();
+  ctx.restore();
+}
 
-      bananas.forEach(b=>b.y+=3);
-      rocks.forEach(r=>r.y+=3);
+// Boulder with shading
+function drawRock(x,y,r){
+  const g = ctx.createRadialGradient(x-r*0.4,y-r*0.4,r*0.2,x,y,r*1.1);
+  g.addColorStop(0,'#a9b0ba'); g.addColorStop(1,'#636b75');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,.25)'; ctx.stroke();
+}
 
-      for(let i=bananas.length-1;i>=0;i--){
-        const b=bananas[i];
-        if(dist(player,b)<player.r+b.r){
-          bananas.splice(i,1); score+=10;
-          document.getElementById("score").textContent="Score: "+score;
-        } else if(b.y>H) bananas.splice(i,1);
-      }
+// Player “Mojo” coin/face
+function drawPlayer(p){
+  ctx.save(); ctx.translate(p.x,p.y);
+  // glow
+  ctx.shadowColor='rgba(255,216,77,.6)'; ctx.shadowBlur=14;
+  ctx.fillStyle='#ffd84d'; ctx.beginPath(); ctx.arc(0,0,p.r,0,Math.PI*2); ctx.fill();
+  ctx.shadowBlur=0;
+  // face
+  ctx.fillStyle='#3b2a19'; ctx.beginPath(); ctx.arc(-6,-4,3,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc( 6,-4,3,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(0,6,7,0,Math.PI); ctx.strokeStyle='#3b2a19'; ctx.lineWidth=3; ctx.stroke();
+  ctx.restore();
+}
 
-      for(let i=rocks.length-1;i>=0;i--){
-        const r=rocks[i];
-        if(dist(player,r)<player.r+r.r){ end(); return; }
-        else if(r.y>H) rocks.splice(i,1);
-      }
-    }
+// Particle burst
+const particles=[];
+function burst(x,y,color){
+  for(let i=0;i<12;i++){
+    particles.push({x,y,vx:(Math.random()*2-1)*2,vy:(Math.random()*-2-0.5),life:1,color});
+  }
+}
+function updateParticles(dt){
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i]; p.x+=p.vx; p.vy+=0.05; p.y+=p.vy; p.life-=dt*0.0025;
+    if(p.life<=0){ particles.splice(i,1); continue; }
+    ctx.globalAlpha=Math.max(0,p.life); ctx.fillStyle=p.color; ctx.fillRect(p.x,p.y,2,2); ctx.globalAlpha=1;
+  }
+}
 
-    function draw(){
-      ctx.clearRect(0,0,W,H);
-      ctx.fillStyle="#0a1a12"; ctx.fillRect(0,H-40,W,40);
-      // player
-      ctx.fillStyle="#f5d28b"; ctx.beginPath(); ctx.arc(player.x,player.y,player.r,0,Math.PI*2); ctx.fill();
-      // bananas
-      ctx.fillStyle="#ffdf40"; bananas.forEach(b=>{ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill();});
-      // rocks
-      ctx.fillStyle="#6b717a"; rocks.forEach(r=>{ctx.beginPath(); ctx.arc(r.x,r.y,r.r,0,Math.PI*2); ctx.fill();});
-    }
+/* ========= Game state ========= */
+let player, bananas=[], rocks=[], score=0, running=false, lastSpawn=0, tPrev=performance.now(), parallax=0;
+let bestLocal = +localStorage.getItem('mojo_best') || 0;
 
-    function loop(){
-      if(!running) return;
-      const now=performance.now(); lastTime=now;
-      spawn(); update(); draw();
-      requestAnimationFrame(loop);
-    }
+function reset(){
+  player = {x:180, y:560, r:18, vy:0, onGround:true};
+  bananas=[]; rocks=[]; score=0; lastSpawn=0; tPrev=performance.now(); parallax=0;
+  document.getElementById('score').textContent = 'Score: 0';
+}
 
-    function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
+function start(){
+  document.getElementById('overlay').style.display='none';
+  document.getElementById('bigStart').style.display='none';
+  reset(); running=true; loop();
+}
 
-    cv.addEventListener("pointerdown",()=>{if(player.onGround) player.vy=JUMP;});
-    document.getElementById("btnStart").onclick=start;
-    document.getElementById("btnRestart").onclick=start;
+async function end(){
+  running=false;
+  bestLocal = Math.max(bestLocal, score);
+  localStorage.setItem('mojo_best', bestLocal);
+  document.getElementById('final').textContent = 'Score: ' + score;
+  document.getElementById('best').textContent  = 'Best: '  + bestLocal;
+  document.getElementById('overlay').style.display='flex';
+  await saveScore(score);
+}
 
-    reset();
-  </script>
+function spawn(dt){
+  lastSpawn+=dt;
+  if(lastSpawn>700){
+    lastSpawn=0;
+    bananas.push({x:Math.random()*320+20,y:-20,r:10,rot:Math.random()*0.8-0.4});
+    if(Math.random()<0.7) rocks.push({x:Math.random()*300+30,y:-30,r:16});
+  }
+}
+
+function update(dt){
+  parallax+=dt*0.05;
+  // gravity
+  player.vy+=0.4; player.y+=player.vy;
+  if(player.y>560){player.y=560; player.vy=0; player.onGround=true;} else player.onGround=false;
+
+  // fallers
+  const speed = 2.3 + Math.min(5, score*0.01);
+  bananas.forEach(b=>{ b.y+=speed*1.1; b.rot += 0.02; });
+  rocks.forEach(r=>{ r.y+=speed*1.2; });
+
+  // collect
+  for(let i=bananas.length-1;i>=0;i--){
+    const b=bananas[i];
+    if(dist(player,b)<player.r+b.r){
+      bananas.splice(i,1); score+=10;
+      document.getElementById('score').textContent = 'Score: ' + score;
+      burst(b.x,b.y,'#ffd84d');
+    }else if(b.y>660) bananas.splice(i,1);
+  }
+  // hit
+  for(let i=rocks.length-1;i>=0;i--){
+    const r=rocks[i];
+    if(dist(player,r)<player.r+r.r){ burst(player.x,player.y,'#ff6b6b'); end(); return; }
+    else if(r.y>680) rocks.splice(i,1);
+  }
+}
+
+function draw(){
+  drawJungle(parallax);
+  // particles behind player slightly
+  updateParticles(16);
+  // bananas
+  bananas.forEach(b=>drawBanana(b.x,b.y,b.r,b.rot));
+  // rocks
+  rocks.forEach(r=>drawRock(r.x,r.y,r.r));
+  // player
+  drawPlayer(player);
+}
+
+function loop(){
+  if(!running) return;
+  const tNow = performance.now(), dt = tNow - tPrev; tPrev = tNow;
+  spawn(dt); update(dt); draw();
+  requestAnimationFrame(loop);
+}
+
+function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
+
+/* ========= Controls & UI ========= */
+function jump(){ if(player.onGround) player.vy=-8.5; }
+cvs.addEventListener('pointerdown', jump);
+document.getElementById('btnStart').addEventListener('click', start);
+document.getElementById('btnBigStart').addEventListener('click', start);
+document.getElementById('btnRestart').addEventListener('click', start);
+
+// First frame (pretty)
+reset(); drawJungle(0); drawPlayer({x:180,y:560,r:18,vy:0,onGround:true});
+</script>
 </body>
 </html>
+
