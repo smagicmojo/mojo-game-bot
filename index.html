@@ -1,74 +1,110 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>$MOJO Banana Dash 🍌</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>$MOJO — Banana Dash 🍌</title>
   <style>
-    body { margin:0; background:#0b1220; color:#fff; font-family:sans-serif; text-align:center; }
-    #ui { margin:10px; }
-    #btnStart, #btnRestart {
-      padding:10px 16px; border:none; border-radius:6px;
-      background:#17c964; color:#000; font-weight:bold; cursor:pointer;
-    }
-    #score { font-weight:bold; margin-left:10px; }
-    #game { background:#14203b; border:2px solid #1d2b4d; border-radius:12px; }
-    #gameover {
-      position:fixed; inset:0;
-      background:rgba(0,0,0,0.8); color:#fff;
-      display:none; flex-direction:column; justify-content:center; align-items:center;
-      gap:10px; z-index:100;
-    }
+    html,body{margin:0;background:#0b1220;color:#fff;font-family:sans-serif}
+    #ui{position:fixed;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;z-index:200}
+    #btnStart,#btnRestart{padding:10px 16px;border:0;border-radius:8px;background:#17c964;color:#000;font-weight:700;cursor:pointer}
+    #score{font-weight:800}
+    #game{display:block;margin:0 auto;background:#14203b;border:2px solid #1d2b4d;border-radius:16px}
+    #gameover{position:fixed;inset:0;background:rgba(0,0,0,.8);display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:150}
   </style>
 </head>
 <body>
   <div id="ui">
     <button id="btnStart">Start</button>
-    <span id="score">Score: 0</span>
+    <div id="score">Score: 0</div>
   </div>
 
   <canvas id="game" width="360" height="480"></canvas>
 
-  <div id="gameover">
+  <div id="gameover" style="display:none">
     <h1>Game Over</h1>
     <p>Your Score: <span id="finalScore">0</span></p>
     <button id="btnRestart">Play Again</button>
+    <p id="saveStatus"></p>
   </div>
 
   <script>
-    const canvas=document.getElementById("game"), ctx=canvas.getContext("2d");
-    const W=canvas.width,H=canvas.height;
-    let player,score,running;
+    const cv = document.getElementById("game"), ctx=cv.getContext("2d");
+    const W=cv.width,H=cv.height,GRAVITY=0.4,JUMP=-8.5;
+
+    let player,bananas,rocks,score,running,lastTime;
 
     function reset(){
-      player={x:W/2,y:H-40,r:20}; score=0;
+      player={x:W/2,y:H-60,r:18,vy:0,onGround:true};
+      bananas=[]; rocks=[]; score=0; lastTime=performance.now();
       document.getElementById("score").textContent="Score: 0";
+      ctx.clearRect(0,0,W,H);
     }
 
     function start(){
-      document.getElementById("gameover").style.display="none"; // Hides overlay
+      document.getElementById("gameover").style.display="none";
       reset(); running=true; loop();
     }
 
-    function end(){
+    async function end(){
       running=false;
       document.getElementById("finalScore").textContent=score;
-      document.getElementById("gameover").style.display="flex"; // Shows overlay
+      document.getElementById("gameover").style.display="flex";
+    }
+
+    function spawn(){
+      if(Math.random()<0.03) bananas.push({x:Math.random()*W,y:-20,r:10});
+      if(Math.random()<0.02) rocks.push({x:Math.random()*W,y:-20,r:16});
+    }
+
+    function update(){
+      player.vy+=GRAVITY; player.y+=player.vy;
+      if(player.y>H-60){player.y=H-60; player.vy=0; player.onGround=true;}
+      else player.onGround=false;
+
+      bananas.forEach(b=>b.y+=3);
+      rocks.forEach(r=>r.y+=3);
+
+      for(let i=bananas.length-1;i>=0;i--){
+        const b=bananas[i];
+        if(dist(player,b)<player.r+b.r){
+          bananas.splice(i,1); score+=10;
+          document.getElementById("score").textContent="Score: "+score;
+        } else if(b.y>H) bananas.splice(i,1);
+      }
+
+      for(let i=rocks.length-1;i>=0;i--){
+        const r=rocks[i];
+        if(dist(player,r)<player.r+r.r){ end(); return; }
+        else if(r.y>H) rocks.splice(i,1);
+      }
+    }
+
+    function draw(){
+      ctx.clearRect(0,0,W,H);
+      ctx.fillStyle="#0a1a12"; ctx.fillRect(0,H-40,W,40);
+      // player
+      ctx.fillStyle="#f5d28b"; ctx.beginPath(); ctx.arc(player.x,player.y,player.r,0,Math.PI*2); ctx.fill();
+      // bananas
+      ctx.fillStyle="#ffdf40"; bananas.forEach(b=>{ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill();});
+      // rocks
+      ctx.fillStyle="#6b717a"; rocks.forEach(r=>{ctx.beginPath(); ctx.arc(r.x,r.y,r.r,0,Math.PI*2); ctx.fill();});
     }
 
     function loop(){
       if(!running) return;
-      ctx.clearRect(0,0,W,H);
-      ctx.fillStyle="#f5d28b"; ctx.beginPath(); ctx.arc(player.x,player.y,player.r,0,Math.PI*2); ctx.fill();
-      score++;
-      document.getElementById("score").textContent="Score: "+score;
-      if(score>200) end(); // auto game over test
+      const now=performance.now(); lastTime=now;
+      spawn(); update(); draw();
       requestAnimationFrame(loop);
     }
 
+    function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
+
+    cv.addEventListener("pointerdown",()=>{if(player.onGround) player.vy=JUMP;});
     document.getElementById("btnStart").onclick=start;
     document.getElementById("btnRestart").onclick=start;
 
-    reset(); ctx.fillText("Press Start",140,240);
+    reset();
   </script>
 </body>
 </html>
